@@ -1,6 +1,9 @@
 # apps/core/models.py
 from django.db import models
 from django.conf import settings
+import uuid
+from django.utils import timezone
+from datetime import timedelta
 
 
 class Workspace(models.Model):
@@ -61,6 +64,12 @@ class Workspace(models.Model):
         max_length=10,
         choices=[("light", "Claro"), ("dark", "Oscuro")],
         default="light",
+    )
+    theme_name = models.CharField(
+        "Nombre del tema",
+        max_length=50,
+        default="light",
+        help_text="Nombre del tema DaisyUI/Tailwind (light, dark, corporate, etc.)",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -136,6 +145,14 @@ class Client(models.Model):
         max_length=50,
         blank=True,
     )
+    portal_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="portal_client_profile",
+        null=True,
+        blank=True,
+        help_text="Usuario que usa el portal de cliente"
+    )
     birth_date = models.DateField("Fecha de nacimiento", null=True, blank=True)
     notes = models.TextField("Notas internas", blank=True)
 
@@ -149,6 +166,38 @@ class Client(models.Model):
     def __str__(self):
         return self.full_name
 
+
+class ClientInvitation(models.Model):
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="client_invitations",
+    )
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.CASCADE,
+        related_name="invitations",
+    )
+    email = models.EmailField(blank=True, null=True)
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(days=7)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_valid(self):
+        return self.is_active and self.expires_at >= timezone.now()
 
 class Service(models.Model):
     """

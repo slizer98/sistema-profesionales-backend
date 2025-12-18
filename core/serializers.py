@@ -1,6 +1,6 @@
 # core/serializers.py
 from rest_framework import serializers
-from .models import Workspace, Client, Service, Appointment, Consultation
+from .models import Workspace, Client, Service, Appointment, Consultation, ClientInvitation
 
 
 class WorkspaceSerializer(serializers.ModelSerializer):
@@ -17,6 +17,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
             "secondary_color",
             "accent_color",
             "theme_mode",
+            "theme_name",
             "logo",
             "logo_url",
         ]
@@ -47,6 +48,17 @@ class ClientSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "workspace", "created_at"]
+
+
+class ClientInvitationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClientInvitation
+        fields = ["id", "token", "expires_at", "accepted_at", "is_active"]
+
+
+class ClientPortalMeSerializer(serializers.Serializer):
+    client = ClientSerializer()
+    workspace = WorkspaceSerializer()
 
 
 

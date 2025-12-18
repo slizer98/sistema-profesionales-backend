@@ -9,6 +9,9 @@ from .views import (
     AppointmentViewSet,
     ConsultationViewSet,
     MyWorkspaceView,
+    ClientInvitationVerifyView,
+    ClientInvitationAcceptView,   
+    ClientPortalMeView,    
 )
 
 router = DefaultRouter()
@@ -20,5 +23,9 @@ router.register(r"consultations", ConsultationViewSet, basename="consultation")
 
 urlpatterns = [
     path("me/workspace/", MyWorkspaceView.as_view(), name="my-workspace"),
+    # urls.py
+    path("client-portal/invitations/<str:token>/", ClientInvitationVerifyView.as_view()),
     path("", include(router.urls)),
+    path("client-portal/invitations/<str:token>/accept/", ClientInvitationAcceptView.as_view(), name="client-portal-invitation-accept"),
+    path("client-portal/me/",ClientPortalMeView.as_view(), name="client-portal-me"),
 ]

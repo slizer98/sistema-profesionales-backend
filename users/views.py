@@ -1,6 +1,7 @@
 from rest_framework import permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 
 from .models import User
 from .serializers import MeSerializer, RegisterProfessionalSerializer
@@ -11,6 +12,14 @@ class MeView(APIView):
 
     def get(self, request, *args, **kwargs):
         serializer = MeSerializer(request.user)
+        return Response(serializer.data)
+
+
+class MeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MeSerializer(request.user, context={"request": request})
         return Response(serializer.data)
 
 
