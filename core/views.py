@@ -1,6 +1,7 @@
 # core/views.py
 from django.conf import settings
 from rest_framework import status
+from datetime import timedelta
 from rest_framework.decorators import action
 from django.db.models import Q
 from rest_framework import viewsets, permissions
@@ -17,7 +18,9 @@ from .serializers import (
     ServiceSerializer,
     AppointmentSerializer,
     ConsultationSerializer,
-    ClientInvitationSerializer
+    ClientInvitationSerializer,
+    ClientPortalAppointmentSerializer,
+    ClientPortalConsultationSerializer,
 )
 from django.utils import timezone
 from django.contrib.auth import get_user_model
@@ -279,10 +282,83 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         workspace = get_current_workspace_for_user(self.request.user)
         if not workspace:
             raise NotFound("No hay workspace asociado al usuario.")
-        # Si no mandan professional, asignar el usuario actual
-        professional = serializer.validated_data.get("professional") or self.request.user
-        serializer.save(workspace=workspace, professional=professional)
 
+        validated = serializer.validated_data
+        professional = validated.get("professional") or self.request.user
+        service = validated.get("service")
+        start = validated["start"]
+        end = validated.get("end")
+
+        # Si no mandan 'end', lo calculamos
+        if end is None:
+            minutes = 30
+            if service and service.default_duration_minutes:
+                minutes = service.default_duration_minutes
+            end = start + timedelta(minutes=minutes)
+
+        serializer.save(
+            workspace=workspace,
+            professional=professional,
+            end=end,
+        )
+
+class ClientPortalAppointmentsView(APIView):
+    """
+    GET /api/client-portal/appointments/
+    Devuelve las citas del cliente autenticado (portal_user).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        client = (
+            Client.objects
+            .select_related("workspace")
+            .filter(portal_user=user)
+            .first()
+        )
+        if not client:
+            raise NotFound("No se encontró un cliente asociado a este usuario.")
+
+        qs = (
+            Appointment.objects
+            .filter(client=client)
+            .select_related("service")
+            .order_by("start")
+        )
+
+        serializer = ClientPortalAppointmentSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class ClientPortalConsultationsView(APIView):
+    """
+    GET /api/client-portal/consultations/
+    Devuelve las consultas visibles para el cliente autenticado.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        client = (
+            Client.objects
+            .select_related("workspace")
+            .filter(portal_user=user)
+            .first()
+        )
+        if not client:
+            raise NotFound("No se encontró un cliente asociado a este usuario.")
+
+        qs = (
+            Consultation.objects
+            .filter(client=client, visible_to_client=True)
+            .order_by("-created_at")
+        )
+
+        serializer = ClientPortalConsultationSerializer(qs, many=True)
+        return Response(serializer.data)
 
 class ConsultationViewSet(viewsets.ModelViewSet):
     serializer_class = ConsultationSerializer

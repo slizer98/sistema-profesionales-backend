@@ -12,6 +12,8 @@ from .views import (
     ClientInvitationVerifyView,
     ClientInvitationAcceptView,   
     ClientPortalMeView,    
+    ClientPortalAppointmentsView,
+    ClientPortalConsultationsView,
 )
 
 router = DefaultRouter()
@@ -28,4 +30,6 @@ urlpatterns = [
     path("", include(router.urls)),
     path("client-portal/invitations/<str:token>/accept/", ClientInvitationAcceptView.as_view(), name="client-portal-invitation-accept"),
     path("client-portal/me/",ClientPortalMeView.as_view(), name="client-portal-me"),
+    path("client-portal/appointments/",ClientPortalAppointmentsView.as_view(),name="client-portal-appointments"),
+    path("client-portal/consultations/",ClientPortalConsultationsView.as_view(),name="client-portal-consultations"),
 ]

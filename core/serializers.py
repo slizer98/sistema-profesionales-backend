@@ -77,6 +77,35 @@ class ServiceSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "workspace"]
 
 
+class ClientPortalAppointmentSerializer(serializers.ModelSerializer):
+    service_name = serializers.CharField(source="service.name", read_only=True)
+
+    class Meta:
+        model = Appointment
+        fields = [
+            "id",
+            "start",
+            "end",
+            "status",
+            "modality",
+            "service_name",
+            "notes_for_client",
+        ]
+
+
+class ClientPortalConsultationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Consultation
+        fields = [
+            "id",
+            "title",
+            "notes",
+            "extra_data",
+            "visible_to_client",
+            "created_at",
+        ]
+
+
 class AppointmentSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source="client.full_name", read_only=True)
     service_name = serializers.CharField(source="service.name", read_only=True)
