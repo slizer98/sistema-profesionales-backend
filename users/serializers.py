@@ -133,3 +133,21 @@ class RegisterProfessionalSerializer(serializers.Serializer):
         )
 
         return user
+
+
+class PasswordResetTestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    new_password = serializers.CharField(min_length=6, write_only=True)
+    confirm_password = serializers.CharField(min_length=6, write_only=True)
+
+    def validate_email(self, value):
+        if not User.objects.filter(email__iexact=value, is_active=True).exists():
+            raise serializers.ValidationError("No existe un usuario activo con este correo.")
+        return value
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError({
+                "confirm_password": "Las contraseñas no coinciden."
+            })
+        return attrs

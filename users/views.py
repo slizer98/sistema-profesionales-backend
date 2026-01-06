@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from .models import User
-from .serializers import MeSerializer, RegisterProfessionalSerializer
+from .serializers import MeSerializer, RegisterProfessionalSerializer, PasswordResetTestSerializer
 
 
 class MeView(APIView):
@@ -37,3 +37,29 @@ class RegisterProfessionalView(APIView):
             data = MeSerializer(user).data
             return Response(data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PasswordResetTestView(APIView):
+    """
+    POST /api/users/password-reset/test/
+    Body: { email, new_password, confirm_password }
+
+    MODO PRUEBAS: si el correo existe, cambia password directo.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        s = PasswordResetTestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        email = s.validated_data["email"]
+        new_password = s.validated_data["new_password"]
+
+        user = User.objects.get(email__iexact=email, is_active=True)
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+
+        return Response(
+            {"detail": "Contraseña actualizada (modo pruebas)."},
+            status=status.HTTP_200_OK
+        )
