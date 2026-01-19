@@ -102,6 +102,13 @@ class ClientViewSet(viewsets.ModelViewSet):
         workspace = get_current_workspace_for_user(self.request.user)
         if not workspace:
             raise NotFound("No hay workspace asociado al usuario.")
+
+        email = (serializer.validated_data.get("email") or "").strip()
+        if email:
+            exists = Client.objects.filter(workspace=workspace, email__iexact=email).exists()
+            if exists:
+                raise ValidationError({"email": "Ya existe un cliente con este correo en este workspace."})
+
         serializer.save(workspace=workspace)
     
     @action(detail=True, methods=["post"], url_path="invite")
@@ -169,7 +176,7 @@ class ClientInvitationAcceptView(APIView):
         if not inv.is_valid:
             raise ValidationError("La invitación ha expirado o ya no es válida.")
 
-        email = request.data.get("email") or inv.client.email
+        email = (request.data.get("email") or inv.client.email or "").strip().lower()
         password = request.data.get("password")
         password_confirm = request.data.get("password_confirm")
 
@@ -180,9 +187,14 @@ class ClientInvitationAcceptView(APIView):
             raise ValidationError("Las contraseñas no coinciden.")
 
         # Buscar o crear usuario por email (sin 'username', tu modelo no lo tiene)
-        user, created = User.objects.get_or_create(email=email)
+        user = User.objects.filter(email__iexact=email).first()
+        created = False
+        if not user:
+            user = User(email=email)
+            created = True
 
         client = inv.client
+
         if created:
             # Opcional: si tu User tiene full_name, lo rellenamos
             if hasattr(user, "full_name") and client.full_name:
@@ -236,25 +248,18 @@ class ClientPortalMeView(APIView):
 
     def get(self, request):
         user = request.user
-
         clients = list(get_portal_clients_for_user(user))
         if not clients:
             raise NotFound("No se encontró un cliente asociado a este usuario.")
 
-        workspaces = [client.workspace for client in clients if client.workspace]
-        workspace_serializer = WorkspaceSerializer(
-            workspaces,
-            many=True,
-            context={"request": request},
-        )
-        client_serializer = ClientSerializer(clients, many=True)
+        entries = []
+        for c in clients:
+            entries.append({
+                "workspace": WorkspaceSerializer(c.workspace, context={"request": request}).data,
+                "client": ClientSerializer(c).data,
+            })
 
-        return Response(
-            {
-                "clients": client_serializer.data,
-                "workspaces": workspace_serializer.data,
-            }
-        )
+        return Response({"entries": entries})
 
 
 
