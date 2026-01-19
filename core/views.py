@@ -43,6 +43,16 @@ def get_current_workspace_for_user(user):
     return qs.first()
 
 
+def get_portal_clients_for_user(user, workspace_slug=None):
+    qs = Client.objects.select_related("workspace").filter(
+        portal_user=user,
+        is_active=True,
+    )
+    if workspace_slug:
+        qs = qs.filter(workspace__slug=workspace_slug)
+    return qs
+
+
 class WorkspaceViewSet(viewsets.ModelViewSet):
     """
     CRUD de workspaces.
@@ -172,13 +182,18 @@ class ClientInvitationAcceptView(APIView):
         # Buscar o crear usuario por email (sin 'username', tu modelo no lo tiene)
         user, created = User.objects.get_or_create(email=email)
 
-        # Opcional: si tu User tiene full_name, lo rellenamos
         client = inv.client
-        if created and hasattr(user, "full_name") and client.full_name:
-            user.full_name = client.full_name
-
-        user.set_password(password)
-        user.save()
+        if created:
+            # Opcional: si tu User tiene full_name, lo rellenamos
+            if hasattr(user, "full_name") and client.full_name:
+                user.full_name = client.full_name
+            user.set_password(password)
+            user.save()
+        else:
+            if not user.check_password(password):
+                raise ValidationError(
+                    "El correo ya está registrado. Usa la contraseña existente."
+                )
 
         client.portal_user = user
         if not client.email:
@@ -222,26 +237,22 @@ class ClientPortalMeView(APIView):
     def get(self, request):
         user = request.user
 
-        client = (
-            Client.objects.select_related("workspace")
-            .filter(portal_user=user)
-            .first()
-        )
-        if not client:
+        clients = list(get_portal_clients_for_user(user))
+        if not clients:
             raise NotFound("No se encontró un cliente asociado a este usuario.")
 
-        workspace = client.workspace
-
+        workspaces = [client.workspace for client in clients if client.workspace]
         workspace_serializer = WorkspaceSerializer(
-            workspace,
+            workspaces,
+            many=True,
             context={"request": request},
         )
-        client_serializer = ClientSerializer(client)
+        client_serializer = ClientSerializer(clients, many=True)
 
         return Response(
             {
-                "client": client_serializer.data,
-                "workspace": workspace_serializer.data,
+                "clients": client_serializer.data,
+                "workspaces": workspace_serializer.data,
             }
         )
 
@@ -311,19 +322,14 @@ class ClientPortalAppointmentsView(APIView):
 
     def get(self, request):
         user = request.user
-
-        client = (
-            Client.objects
-            .select_related("workspace")
-            .filter(portal_user=user)
-            .first()
-        )
-        if not client:
+        workspace_slug = request.query_params.get("workspace_slug")
+        clients = list(get_portal_clients_for_user(user, workspace_slug=workspace_slug))
+        if not clients:
             raise NotFound("No se encontró un cliente asociado a este usuario.")
 
         qs = (
             Appointment.objects
-            .filter(client=client)
+            .filter(client__in=clients)
             .select_related("service")
             .order_by("start")
         )
@@ -341,19 +347,14 @@ class ClientPortalConsultationsView(APIView):
 
     def get(self, request):
         user = request.user
-
-        client = (
-            Client.objects
-            .select_related("workspace")
-            .filter(portal_user=user)
-            .first()
-        )
-        if not client:
+        workspace_slug = request.query_params.get("workspace_slug")
+        clients = list(get_portal_clients_for_user(user, workspace_slug=workspace_slug))
+        if not clients:
             raise NotFound("No se encontró un cliente asociado a este usuario.")
 
         qs = (
             Consultation.objects
-            .filter(client=client, visible_to_client=True)
+            .filter(client__in=clients, visible_to_client=True)
             .order_by("-created_at")
         )
 
