@@ -86,9 +86,10 @@ python manage.py createsuperuser
 ```bash
 python manage.py runserver
 ```
-
 El backend quedará disponible en `http://127.0.0.1:8000/`.
 
+### 7) Checar documentación API
+La documentación de las APIs dicponible `http://127.0.0.1:8000/api/docs/`
 ---
 
 ## Funcionamiento (visión general)
