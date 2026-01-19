@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "rest_framework",
+    "drf_spectacular",
     "corsheaders",
     "users",
     "core",
@@ -152,6 +153,13 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Sistema Profesionales API",
+    "DESCRIPTION": "Documentación OpenAPI para el backend.",
+    "VERSION": "1.0.0",
 }
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media' 
