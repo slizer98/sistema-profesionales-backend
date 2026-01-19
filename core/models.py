@@ -145,13 +145,13 @@ class Client(models.Model):
         max_length=50,
         blank=True,
     )
-    portal_user = models.OneToOneField(
+    portal_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        related_name="portal_client_profile",
+        related_name="portal_client_profiles",
         null=True,
         blank=True,
-        help_text="Usuario que usa el portal de cliente"
+        help_text="Usuario que usa el portal de cliente",
     )
     birth_date = models.DateField("Fecha de nacimiento", null=True, blank=True)
     notes = models.TextField("Notas internas", blank=True)
