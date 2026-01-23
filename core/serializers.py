@@ -1,6 +1,6 @@
 # core/serializers.py
 from rest_framework import serializers
-from .models import Workspace, Client, Service, Appointment, Consultation, ClientInvitation
+from .models import (Workspace, Client, Service, Appointment, Consultation, ClientInvitation, CaseFile, CaseEvent, CaseAttachment)
 
 
 class WorkspaceSerializer(serializers.ModelSerializer):
@@ -150,3 +150,172 @@ class ConsultationSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "workspace", "created_at"]
+
+# -----------------------------------------
+# CASE ATTACHMENTS
+# -----------------------------------------
+class CaseAttachmentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseAttachment
+        fields = [
+            "id",
+            "workspace",
+            "casefile",
+            "event",
+            "file",
+            "file_url",
+            "original_name",
+            "mime_type",
+            "size_bytes",
+            "uploaded_by",
+            "uploaded_at",
+            "is_private",
+        ]
+        read_only_fields = [
+            "id",
+            "workspace",
+            "original_name",
+            "mime_type",
+            "size_bytes",
+            "uploaded_by",
+            "uploaded_at",
+        ]
+
+    def get_file_url(self, obj):
+        request = self.context.get("request")
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return None
+
+
+# -----------------------------------------
+# CASE EVENTS
+# -----------------------------------------
+class CaseEventSerializer(serializers.ModelSerializer):
+    attachments = CaseAttachmentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CaseEvent
+        fields = [
+            "id",
+            "workspace",
+            "casefile",
+            "appointment",
+            "consultation",
+            "event_type",
+            "title",
+            "body",
+            "happened_at",
+            "visible_to_client",
+            "created_by",
+            "created_at",
+            "extra_data",
+            "attachments",
+        ]
+        read_only_fields = ["id", "workspace", "created_by", "created_at", "attachments"]
+
+
+# -----------------------------------------
+# CASE FILES (EXPEDIENTES)
+# -----------------------------------------
+class CaseFileSerializer(serializers.ModelSerializer):
+    client_name = serializers.CharField(source="client.full_name", read_only=True)
+    events_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = CaseFile
+        fields = [
+            "id",
+            "workspace",
+            "client",
+            "client_name",
+            "title",
+            "status",
+            "is_primary",
+            "tags",
+            "extra_data",
+            "opened_at",
+            "closed_at",
+            "events_count",
+        ]
+        read_only_fields = ["id", "workspace", "opened_at", "events_count"]
+
+    def validate_status(self, value):
+        if value in (None, ""):
+            return CaseFile.STATUS_OPEN  # default seguro
+
+        v = str(value).strip()
+
+        # Quita comillas si vienen “pegadas” (ej: '"active"' o "'active'")
+        if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+            v = v[1:-1].strip()
+
+        # Compat con frontend viejo
+        mapping = {
+            "active": CaseFile.STATUS_OPEN,
+            "paused": CaseFile.STATUS_ON_HOLD,
+            "onhold": CaseFile.STATUS_ON_HOLD,
+            "inactive": CaseFile.STATUS_CLOSED,
+        }
+        v = mapping.get(v, v)
+
+        allowed = {CaseFile.STATUS_OPEN, CaseFile.STATUS_ON_HOLD, CaseFile.STATUS_CLOSED}
+        if v not in allowed:
+            raise serializers.ValidationError(
+                f"Estado inválido. Usa: {', '.join(sorted(allowed))}."
+            )
+        return v
+
+
+# -----------------------------------------
+# CLIENT PORTAL (lectura)
+# -----------------------------------------
+class ClientPortalCaseFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaseFile
+        fields = [
+            "id",
+            "title",
+            "status",
+            "is_primary",
+            "tags",
+            "opened_at",
+            "closed_at",
+        ]
+
+
+class ClientPortalCaseAttachmentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseAttachment
+        fields = ["id", "original_name", "mime_type", "size_bytes", "uploaded_at", "file_url"]
+
+    def get_file_url(self, obj):
+        request = self.context.get("request")
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return None
+
+
+class ClientPortalCaseEventSerializer(serializers.ModelSerializer):
+    attachments = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseEvent
+        fields = [
+            "id",
+            "event_type",
+            "title",
+            "body",
+            "happened_at",
+            "extra_data",
+            "attachments",
+        ]
+
+    def get_attachments(self, obj):
+        # Solo attachments NO privados en el portal
+        qs = obj.attachments.filter(is_private=False).order_by("-uploaded_at")
+        return ClientPortalCaseAttachmentSerializer(qs, many=True, context=self.context).data

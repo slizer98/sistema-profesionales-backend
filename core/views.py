@@ -2,6 +2,7 @@
 from django.conf import settings
 from rest_framework import status
 from datetime import timedelta
+from django.db.models import Count
 from rest_framework.decorators import action
 from django.db.models import Q
 from rest_framework import viewsets, permissions
@@ -11,7 +12,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.views import APIView
 from rest_framework.exceptions import NotFound, ValidationError
-from .models import Workspace, Client, Service, Appointment, Consultation, ClientInvitation
+from .models import Workspace, Client, Service, Appointment, Consultation, ClientInvitation, CaseFile, CaseEvent, CaseAttachment
 from .serializers import (
     WorkspaceSerializer,
     ClientSerializer,
@@ -21,6 +22,7 @@ from .serializers import (
     ClientInvitationSerializer,
     ClientPortalAppointmentSerializer,
     ClientPortalConsultationSerializer,
+    CaseFileSerializer, CaseEventSerializer, CaseAttachmentSerializer, ClientPortalCaseFileSerializer, ClientPortalCaseEventSerializer
 )
 from django.utils import timezone
 from django.contrib.auth import get_user_model
@@ -51,6 +53,9 @@ def get_portal_clients_for_user(user, workspace_slug=None):
     if workspace_slug:
         qs = qs.filter(workspace__slug=workspace_slug)
     return qs
+
+def get_allowed_workspaces_for_user(user):
+    return Workspace.objects.filter(Q(owner=user) | Q(memberships__user=user)).distinct()
 
 
 class WorkspaceViewSet(viewsets.ModelViewSet):
@@ -402,3 +407,164 @@ class MyWorkspaceView(APIView):
             context={"request": request},
         )
         return Response(serializer.data)
+
+
+class CaseFileViewSet(viewsets.ModelViewSet):
+    serializer_class = CaseFileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = CaseFile.objects.filter(
+            workspace__in=get_allowed_workspaces_for_user(user)
+        ).select_related("client").annotate(events_count=Count("events")).distinct()
+
+        client_id = self.request.query_params.get("client")
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+
+        return qs.order_by("-opened_at", "-id")
+
+    def perform_create(self, serializer):
+        workspace = get_current_workspace_for_user(self.request.user)
+        if not workspace:
+            raise NotFound("No hay workspace asociado al usuario.")
+
+        client = serializer.validated_data.get("client")
+        if not client or client.workspace_id != workspace.id:
+            raise ValidationError({"client": "El cliente no pertenece al workspace actual."})
+
+        serializer.save(workspace=workspace)
+
+
+class CaseEventViewSet(viewsets.ModelViewSet):
+    serializer_class = CaseEventSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = CaseEvent.objects.filter(
+            workspace__in=get_allowed_workspaces_for_user(user)
+        ).select_related("casefile", "appointment", "consultation").prefetch_related("attachments").distinct()
+
+        casefile_id = self.request.query_params.get("casefile")
+        if casefile_id:
+            qs = qs.filter(casefile_id=casefile_id)
+
+        return qs.order_by("-happened_at", "-id")
+
+    def perform_create(self, serializer):
+        workspace = get_current_workspace_for_user(self.request.user)
+        if not workspace:
+            raise NotFound("No hay workspace asociado al usuario.")
+
+        casefile = serializer.validated_data.get("casefile")
+        if not casefile or casefile.workspace_id != workspace.id:
+            raise ValidationError({"casefile": "El expediente no pertenece al workspace actual."})
+
+        happened_at = serializer.validated_data.get("happened_at")
+        if not happened_at:
+            happened_at = timezone.now()
+
+        serializer.save(
+            workspace=workspace,
+            created_by=self.request.user,
+            happened_at=happened_at,
+        )
+
+    @action(detail=True, methods=["post"], url_path="attachments")
+    def upload_attachments(self, request, pk=None):
+        """
+        POST /api/caseevents/<id>/attachments/
+        FormData:
+          - file: <File>  (uno)
+          - o files: <File[]> (multiples)
+          - is_private: true/false (opcional, default false)
+        """
+        event = self.get_object()
+        workspace = event.workspace
+
+        is_private = str(request.data.get("is_private", "false")).lower() in ["1", "true", "yes", "y"]
+
+        files = []
+        if "files" in request.FILES:
+            files = request.FILES.getlist("files")
+        elif "file" in request.FILES:
+            files = [request.FILES["file"]]
+
+        if not files:
+            raise ValidationError({"file": "Debes enviar 'file' o 'files' en multipart/form-data."})
+
+        created = []
+        for f in files:
+            att = CaseAttachment.objects.create(
+                workspace=workspace,
+                casefile=event.casefile,
+                event=event,
+                file=f,
+                original_name=getattr(f, "name", "") or "",
+                mime_type=getattr(f, "content_type", "") or "",
+                size_bytes=getattr(f, "size", 0) or 0,
+                uploaded_by=request.user,
+                is_private=is_private,
+            )
+            created.append(att)
+
+        ser = CaseAttachmentSerializer(created, many=True, context={"request": request})
+        return Response(ser.data, status=status.HTTP_201_CREATED)
+
+
+class CaseAttachmentViewSet(viewsets.ModelViewSet):
+    serializer_class = CaseAttachmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [FormParser, MultiPartParser]
+
+    def get_queryset(self):
+        user = self.request.user
+        return CaseAttachment.objects.filter(
+            workspace__in=get_allowed_workspaces_for_user(user)
+        ).select_related("casefile", "event").distinct()
+
+    def perform_create(self, serializer):
+        # Recomiendo CREAR por el action de CaseEventViewSet para mantener coherencia.
+        raise ValidationError("Usa /caseevents/<id>/attachments/ para subir archivos.")
+
+class ClientPortalCaseFilesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        workspace_slug = request.query_params.get("workspace_slug")
+        clients = list(get_portal_clients_for_user(user, workspace_slug=workspace_slug))
+        if not clients:
+            raise NotFound("No se encontró un cliente asociado a este usuario.")
+
+        qs = CaseFile.objects.filter(client__in=clients).order_by("-opened_at", "-id")
+        ser = ClientPortalCaseFileSerializer(qs, many=True, context={"request": request})
+        return Response(ser.data)
+
+
+class ClientPortalCaseFileEventsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, casefile_id):
+        user = request.user
+        workspace_slug = request.query_params.get("workspace_slug")
+        clients = list(get_portal_clients_for_user(user, workspace_slug=workspace_slug))
+        if not clients:
+            raise NotFound("No se encontró un cliente asociado a este usuario.")
+
+        casefile = CaseFile.objects.filter(id=casefile_id, client__in=clients).first()
+        if not casefile:
+            raise NotFound("Expediente no encontrado para este cliente/workspace.")
+
+        qs = (
+            CaseEvent.objects
+            .filter(casefile=casefile, visible_to_client=True)
+            .prefetch_related("attachments")
+            .order_by("-happened_at", "-id")
+        )
+
+        ser = ClientPortalCaseEventSerializer(qs, many=True, context={"request": request})
+        return Response(ser.data)

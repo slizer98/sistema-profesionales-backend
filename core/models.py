@@ -363,3 +363,115 @@ class Consultation(models.Model):
 
     def __str__(self):
         return self.title or f"Consulta de {self.client} ({self.created_at.date()})"
+
+
+class CaseFile(models.Model):
+    STATUS_OPEN = "open"
+    STATUS_ON_HOLD = "on_hold"
+    STATUS_CLOSED = "closed"
+
+    STATUS_CHOICES = [
+        (STATUS_OPEN, "Abierto"),
+        (STATUS_ON_HOLD, "En pausa"),
+        (STATUS_CLOSED, "Cerrado"),
+    ]
+
+    workspace = models.ForeignKey("core.Workspace", on_delete=models.CASCADE, related_name="casefiles")
+    client = models.ForeignKey("core.Client", on_delete=models.CASCADE, related_name="casefiles")
+
+    title = models.CharField(max_length=180, blank=True)  # "Expediente general", "Caso Laboral", etc.
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_OPEN)
+
+    is_primary = models.BooleanField(default=True)  # para que todos tengan uno "principal"
+    tags = models.JSONField(default=list, blank=True)  # etiquetas simples
+    extra_data = models.JSONField(default=dict, blank=True)  # datos dinámicos por nicho
+
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "client", "status"]),
+        ]
+
+    def __str__(self):
+        return self.title or f"Expediente {self.client.full_name}"
+    
+
+class CaseEvent(models.Model):
+    TYPE_NOTE = "note"
+    TYPE_CALL = "call"
+    TYPE_VISIT = "visit"
+    TYPE_APPOINTMENT = "appointment"
+    TYPE_DOCUMENT = "document"
+    TYPE_STATUS = "status"
+    TYPE_PAYMENT = "payment"
+    TYPE_OTHER = "other"
+
+    TYPE_CHOICES = [
+        (TYPE_NOTE, "Nota"),
+        (TYPE_CALL, "Llamada"),
+        (TYPE_VISIT, "Visita"),
+        (TYPE_APPOINTMENT, "Cita"),
+        (TYPE_DOCUMENT, "Documento"),
+        (TYPE_STATUS, "Cambio de estado"),
+        (TYPE_PAYMENT, "Pago"),
+        (TYPE_OTHER, "Otro"),
+    ]
+
+    workspace = models.ForeignKey("core.Workspace", on_delete=models.CASCADE, related_name="caseevents")
+    casefile = models.ForeignKey(CaseFile, on_delete=models.CASCADE, related_name="events")
+
+    # opcional: liga a entidades existentes
+    appointment = models.ForeignKey("core.Appointment", on_delete=models.SET_NULL, null=True, blank=True)
+    consultation = models.ForeignKey("core.Consultation", on_delete=models.SET_NULL, null=True, blank=True)
+
+    event_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_NOTE)
+    title = models.CharField(max_length=180, blank=True)
+    body = models.TextField(blank=True)
+
+    # Para seguimiento: fecha del evento (no siempre coincide con created_at)
+    happened_at = models.DateTimeField()
+
+    # visibilidad para cliente
+    visible_to_client = models.BooleanField(default=True)
+
+    # trazabilidad
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="created_caseevents")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # datos extra (recetas, juzgado, signos vitales, etc.)
+    extra_data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-happened_at", "-id"]
+        indexes = [
+            models.Index(fields=["workspace", "casefile", "happened_at"]),
+            models.Index(fields=["workspace", "event_type", "happened_at"]),
+        ]
+
+    def __str__(self):
+        return self.title or f"{self.get_event_type_display()} - {self.happened_at.date()}" 
+    
+
+
+def case_attachment_upload_to(instance, filename):
+    return f"casefiles/{instance.workspace_id}/{instance.casefile_id}/{instance.event_id}/{filename}"
+
+class CaseAttachment(models.Model):
+    workspace = models.ForeignKey("core.Workspace", on_delete=models.CASCADE, related_name="caseattachments")
+    casefile = models.ForeignKey(CaseFile, on_delete=models.CASCADE, related_name="attachments")
+    event = models.ForeignKey(CaseEvent, on_delete=models.CASCADE, related_name="attachments")
+
+    file = models.FileField(upload_to=case_attachment_upload_to)
+    original_name = models.CharField(max_length=255, blank=True)
+    mime_type = models.CharField(max_length=100, blank=True)
+    size_bytes = models.BigIntegerField(default=0)
+
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="uploaded_caseattachments")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    is_private = models.BooleanField(default=False)  
+
+    def __str__(self):
+        return self.original_name or self.file.name
