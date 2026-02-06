@@ -1,5 +1,5 @@
 # Sistema de Profesionales (ERP multi-tenant)
-
+(Documentación del código)[https://deepwiki.com/slizer98/sistema-profesionales-backend]
 Plataforma tipo ERP multi-tenant para profesionistas (médicos, dentistas, barberos, etc.) enfocada en la gestión de citas, expedientes y control operativo del negocio. El sistema contempla dos experiencias principales:
 
 - **Perfil del profesionista**: su espacio principal de administración, personalización y control.
