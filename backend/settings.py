@@ -27,6 +27,7 @@ SECRET_KEY = 'django-insecure-o73ex&p7#b@lozv&$#=46m9jgtj7r*nwdag^x=scshf2j^8tty
 DEBUG = True
 
 ALLOWED_HOSTS = []
+JITSI_BASE_URL = os.getenv("JITSI_BASE_URL", "https://meet.digitark.cloud")
 
 
 # Application definition

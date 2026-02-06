@@ -20,6 +20,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
             "theme_name",
             "logo",
             "logo_url",
+            "enable_video_calls",
         ]
         read_only_fields = ["id"]
 
@@ -77,22 +78,6 @@ class ServiceSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "workspace"]
 
 
-class ClientPortalAppointmentSerializer(serializers.ModelSerializer):
-    service_name = serializers.CharField(source="service.name", read_only=True)
-
-    class Meta:
-        model = Appointment
-        fields = [
-            "id",
-            "start",
-            "end",
-            "status",
-            "modality",
-            "service_name",
-            "notes_for_client",
-        ]
-
-
 class ClientPortalConsultationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Consultation
@@ -127,8 +112,25 @@ class AppointmentSerializer(serializers.ModelSerializer):
             "notes_internal",
             "notes_for_client",
             "created_at",
+            "video_room",
+            "video_url",
         ]
-        read_only_fields = ["id", "workspace", "created_at"]
+        read_only_fields = ["id", "workspace", "created_at",  "video_room", "video_url"]
+
+
+class ClientPortalAppointmentSerializer(serializers.ModelSerializer):
+    service_name = serializers.CharField(source="service.name", read_only=True)
+    can_video = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Appointment
+        fields = [
+            "id","start","end","status","modality","service_name","notes_for_client",
+            "can_video","video_room", "video_url"
+        ]
+
+    def get_can_video(self, obj):
+        return obj.modality == Appointment.MODALITY_ONLINE and getattr(obj.workspace, "enable_video_calls", False)
 
 
 class ConsultationSerializer(serializers.ModelSerializer):

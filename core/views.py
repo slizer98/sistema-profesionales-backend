@@ -10,9 +10,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
+from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.exceptions import NotFound, ValidationError
-from .models import Workspace, Client, Service, Appointment, Consultation, ClientInvitation, CaseFile, CaseEvent, CaseAttachment
+from .models import Workspace, Client, Service, Appointment, Consultation, ClientInvitation, CaseFile, CaseEvent, CaseAttachment, AppointmentVideo
 from .serializers import (
     WorkspaceSerializer,
     ClientSerializer,
@@ -29,7 +30,8 @@ from django.contrib.auth import get_user_model
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from users.models import User  # ajusta el import si tu app de usuario está en otro lado
+JITSI_DOMAIN = getattr(settings, "JITSI_DOMAIN", "meet.digitark.cloud")
+
 User = get_user_model()
 
 
@@ -135,6 +137,39 @@ class ClientViewSet(viewsets.ModelViewSet):
         data["invite_url"] = invite_url
 
         return Response(data, status=status.HTTP_201_CREATED)
+
+
+class ClientPortalAppointmentVideoJoinView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, appointment_id: int):
+        user = request.user
+
+        appt = get_object_or_404(Appointment.objects.select_related("client","workspace"), id=appointment_id)
+
+        if not getattr(appt.workspace, "enable_video_calls", False):
+            raise ValidationError("Videollamadas no habilitadas en este workspace.")
+
+        if appt.modality != Appointment.MODALITY_ONLINE:
+            raise ValidationError("Esta cita no es online.")
+
+        if not appt.client.portal_user_id or appt.client.portal_user_id != user.id:
+            raise NotFound("No tienes acceso a esta cita.")
+
+        video, created = AppointmentVideo.objects.get_or_create(
+            appointment=appt,
+            defaults={
+                "room_name": AppointmentVideo.gen_room(appt),
+                "room_passcode": AppointmentVideo.gen_pass(),
+            },
+        )
+
+        return Response({
+            "domain": JITSI_DOMAIN,
+            "room": video.room_name,
+            "passcode": video.room_passcode,
+            "is_moderator": False,
+        })
 
 
 class ClientInvitationVerifyView(APIView):
@@ -322,6 +357,34 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             professional=professional,
             end=end,
         )
+
+    @action(detail=True, methods=["post"], url_path="video/join")
+    def video_join(self, request, pk=None):
+        appt = self.get_object()
+
+        if not getattr(appt.workspace, "enable_video_calls", False):
+            return Response({"detail": "Videollamadas no habilitadas en este workspace."}, status=400)
+
+        if appt.modality != Appointment.MODALITY_ONLINE:
+            return Response({"detail": "Esta cita no es online."}, status=400)
+
+        # (opcional estricto) solo el profesional asignado puede ser moderador
+        is_moderator = (appt.professional_id == request.user.id) or (appt.workspace.owner_id == request.user.id)
+
+        video, created = AppointmentVideo.objects.get_or_create(
+            appointment=appt,
+            defaults={
+                "room_name": AppointmentVideo.gen_room(appt),
+                "room_passcode": AppointmentVideo.gen_pass(),
+            },
+        )
+
+        return Response({
+            "domain": JITSI_DOMAIN,
+            "room": video.room_name,
+            "passcode": video.room_passcode,
+            "is_moderator": bool(is_moderator),
+        })
 
 class ClientPortalAppointmentsView(APIView):
     """

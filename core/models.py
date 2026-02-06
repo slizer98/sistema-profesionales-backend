@@ -4,8 +4,8 @@ from django.conf import settings
 import uuid
 from django.utils import timezone
 from datetime import timedelta
-
-
+import secrets
+import uuid
 class Workspace(models.Model):
     NICHE_DOCTOR = "doctor"
     NICHE_DENTIST = "dentist"
@@ -71,7 +71,7 @@ class Workspace(models.Model):
         default="light",
         help_text="Nombre del tema DaisyUI/Tailwind (light, dark, corporate, etc.)",
     )
-
+    enable_video_calls = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -299,8 +299,13 @@ class Appointment(models.Model):
 
     notes_internal = models.TextField("Notas internas", blank=True)
     notes_for_client = models.TextField("Notas visibles para cliente", blank=True)
-
+    video_room = models.UUIDField(default=uuid.uuid4, null=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def video_url(self):
+        base = getattr(settings, "JITSI_BASE_URL", "https://meet.digitark.cloud").rstrip("/")
+        return f"{base}/{self.video_room}"
 
     class Meta:
         verbose_name = "Cita"
@@ -308,6 +313,22 @@ class Appointment(models.Model):
 
     def __str__(self):
         return f"{self.client} - {self.service} ({self.start})"
+
+
+class AppointmentVideo(models.Model):
+    appointment = models.OneToOneField("core.Appointment", on_delete=models.CASCADE, related_name="video")
+    room_name = models.CharField(max_length=120, unique=True)
+    room_passcode = models.CharField(max_length=32)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @staticmethod
+    def gen_room(appointment):
+        # room no adivinable
+        return f"ws{appointment.workspace_id}-ap{appointment.id}-{secrets.token_urlsafe(10)}".replace("-", "")
+
+    @staticmethod
+    def gen_pass():
+        return secrets.token_urlsafe(12)
 
 
 class Consultation(models.Model):

@@ -19,6 +19,7 @@ from .views import (
     CaseAttachmentViewSet,
     ClientPortalCaseFilesView,
     ClientPortalCaseFileEventsView,
+    ClientPortalAppointmentVideoJoinView,
 )
 
 router = DefaultRouter()
@@ -42,5 +43,7 @@ urlpatterns = [
     path("client-portal/appointments/",ClientPortalAppointmentsView.as_view(),name="client-portal-appointments"),
     path("client-portal/consultations/",ClientPortalConsultationsView.as_view(),name="client-portal-consultations"),
     path("client-portal/casefiles/", ClientPortalCaseFilesView.as_view(), name="client-portal-casefiles"),
-    path("client-portal/casefiles/<int:casefile_id>/events/", ClientPortalCaseFileEventsView.as_view(), name="client-portal-casefile-events"),   
+    path("client-portal/casefiles/<int:casefile_id>/events/", ClientPortalCaseFileEventsView.as_view(), name="client-portal-casefile-events"), 
+    path("client-portal/appointments/<int:appointment_id>/video/join/", ClientPortalAppointmentVideoJoinView.as_view()),
+  
 ]
